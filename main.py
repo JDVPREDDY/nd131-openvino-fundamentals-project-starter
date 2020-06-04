@@ -26,6 +26,7 @@ import time
 import socket
 import json
 import cv2
+import numpy as np
 
 import logging as log
 import paho.mqtt.client as mqtt
@@ -71,8 +72,30 @@ def build_argparser():
 def connect_mqtt():
     ### TODO: Connect to the MQTT client ###
     client = None
+    client = mqtt.Client()
+    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE_INTERVAL)
 
     return client
+
+def draw_boxes(frame, result, width, height, prob_threshold):
+    """
+    Parse SSD output.
+    :param frame: frame from camera/video
+    :param result: list contains the data to parse ssd
+    :return: person count and frame
+    """
+    current_count = 0
+    for obj in result[0][0]:
+        # Draw bounding box for object when it's probability is more than
+        #  the specified threshold
+        if obj[2] > prob_threshold:
+            xmin = int(obj[3] * width)
+            ymin = int(obj[4] * height)
+            xmax = int(obj[5] * width)
+            ymax = int(obj[6] * height)
+            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 55, 255), 1)
+            current_count = current_count + 1
+    return frame, current_count
 
 
 def infer_on_stream(args, client):
@@ -84,37 +107,114 @@ def infer_on_stream(args, client):
     :param client: MQTT client
     :return: None
     """
+    
+    model = args.model
+    start_time = 0
+    cur_request_id = 0
+    last_count = 0
+    total_count = 0
+    single_image_mode = False
     # Initialise the class
     infer_network = Network()
     # Set Probability threshold for detections
     prob_threshold = args.prob_threshold
 
     ### TODO: Load the model through `infer_network` ###
-
+    infer_network.load_model(model, args.device, cur_request_id, args.cpu_extension)
+    net_input_shape = infer_network.get_input_shape()
+    
     ### TODO: Handle the input stream ###
+    # Checks for live feed
+    if args.input == 'CAM':
+        input_stream = 0
+
+    # Checks for input image
+    elif args.input.endswith('.jpg') or args.input.endswith('.bmp') :
+        single_image_mode = True
+        input_stream = args.input
+
+    # Checks for video file
+    else:
+        input_stream = args.input
+        assert os.path.isfile(args.input), "Specified input file doesn't exist"
+
+    cap = cv2.VideoCapture(input_stream)
+
+    if input_stream:
+        cap.open(args.input)
+    
+    cap = cv2.VideoCapture(args.input)
+
+    width = int(cap.get(3))
+    height = int(cap.get(4))
 
     ### TODO: Loop until stream is over ###
-
+    while cap.isOpened():
         ### TODO: Read from the video capture ###
+        flag, frame = cap.read()
+        if not flag:
+            break
+        key_pressed = cv2.waitKey(60)
 
         ### TODO: Pre-process the image as needed ###
+        p_frame = cv2.resize(frame, (net_input_shape[3], net_input_shape[2]))
+        p_frame = p_frame.transpose((2,0,1))
+        p_frame = p_frame.reshape(1, *p_frame.shape)
 
         ### TODO: Start asynchronous inference for specified request ###
-
+        inf_start = time.time()
+        infer_network.exec_net(cur_request_id, p_frame)
         ### TODO: Wait for the result ###
-
+        if infer_network.wait(cur_request_id) == 0:
+            det_time = time.time() - inf_start
+            
             ### TODO: Get the results of the inference request ###
-
+            result = infer_network.extract_output(cur_request_id)
+            
             ### TODO: Extract any desired stats from the results ###
-
+            out_frame, current_count = draw_boxes(frame, result, width, height, prob_threshold)
+            
+            inf_time_message = "Inference time: {:.3f}ms".format(det_time * 1000)
+            cv2.putText(frame, inf_time_message, (15, 15), cv2.FONT_HERSHEY_COMPLEX, 0.5, (200, 10, 10), 1)
             ### TODO: Calculate and send relevant information on ###
             ### current_count, total_count and duration to the MQTT server ###
             ### Topic "person": keys of "count" and "total" ###
             ### Topic "person/duration": key of "duration" ###
+            ############
+            #The following logic is taken from Intel's github repository
+            ############
+            
+            if current_count > last_count:
+                start_time = time.time()
+                total_count = total_count + current_count - last_count
+                client.publish("person", json.dumps({"total": total_count}))
+
+            # Person duration in the video is calculated
+            if current_count < last_count:
+                duration = int(time.time() - start_time)
+                # Publish messages to the MQTT server
+                client.publish("person/duration",
+                               json.dumps({"duration": duration}))
+
+            client.publish("person", json.dumps({"count": current_count}))
+            last_count = current_count
+
+            if key_pressed == 27:
+                break
+
 
         ### TODO: Send the frame to the FFMPEG server ###
+        sys.stdout.buffer.write(frame)  
+        sys.stdout.flush()
 
         ### TODO: Write an output image if `single_image_mode` ###
+        if single_image_mode:
+            cv2.imwrite('output_image.jpg', frame)
+            
+    cap.release()
+    cv2.destroyAllWindows()
+    client.disconnect()
+    infer_network.clean()
 
 
 def main():
