@@ -16,6 +16,12 @@ I have implemented the project using the following pre-trained model from intel 
 ``` python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m intel/person-detection-retail-0013/FP16/person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
 ```
 
+Results Discussion:
+average infrenece time is 66ms.
+
+The model also worked when using models - 2,3 but the number of persons counted is +/- 1.
+So I have decoded to go ahead with this pre-converted model by Intel. To rund models 2,3 just change the path of .xml file specfied in that section below.
+
 ## Explaining Custom Layers
 
 The process behind converting custom layers involves regesterig cumstom layers as extensions to the model optimizer. We can allow to calculate the output of these custom layers in the original framework. For caffe model we may also need to specify the output size.
@@ -31,10 +37,15 @@ Since models in IR (person-detection-retail-0013) can't be run directly on a PC 
 
 - Accuracy: The accuracy is slghtly reduced after conversion to IR, it can be clearly understood by jitter. The pre-conversion model has less jitter than the post-conversion(IR) model. And sometimes post-conversion doesn't even give bounding box results. Still the performance of the post-converted model is okay as the model optimizer ensures that there is least reduction in accuracy.
 
-
 - Size: The size of the model in terms of the memory it occupies is reduced after converting to IR. The pre-conversion model is heavy in terms of memory occupied. This is the main goal of optimizer to reduce the usage of resources on edge devices.
 
 - Inference Time: Pre-conversion model has very high inference time, on my PC which is Intel i3, it took atleasst 10 seconds to process a frame and the video playback is very very slow. After conversion, the inference time is improved. The goal is to reduce the inference time to make the model run faster on edge devices which is achieved here (post-conversion)
+
+| Model Name                                      | Status | Inference Time(average) per frame| Model Size (Mb)    |
+|-------------------------------------------------|--------|----------------------------------|------------------- |
+| ssd_mobilenet_v2_coco_2018_03_29                | pre    |         10 seconds on my cpu     | 66 (.pb file)      |
+| ssd_mobilenet_v2_coco_2018_03_29                | post   |         67ms (in workspace)      | 64 (.bin file)     |
+
 
 ## Assess Model Use Cases
 

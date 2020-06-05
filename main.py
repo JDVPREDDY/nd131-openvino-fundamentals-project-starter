@@ -193,7 +193,9 @@ def infer_on_stream(args, client):
             if current_count < last_count:
                 duration = int(time.time() - start_time)
                 # Publish messages to the MQTT server
-                client.publish("person/duration",
+                if duration > 3:
+                    #update nly if the person is there more than 3 seconds
+                    client.publish("person/duration",
                                json.dumps({"duration": duration}))
 
             client.publish("person", json.dumps({"count": current_count}))
