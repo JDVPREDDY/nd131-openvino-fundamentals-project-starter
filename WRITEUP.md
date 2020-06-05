@@ -4,16 +4,17 @@ You can use this document as a template for providing your project write-up. How
 have a different format you prefer, feel free to use it as long as you answer all required
 questions.
 
-I have implemented the project using 2 pre-trained models.
+I have implemented the project using the following pre-trained model from intel as it is giving more accurate results than others which I have tried.
 1. person-detection-retail-0013
-2. SSD_mobilenet_v2_coco from this (link)[http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz]
 
-The first implementation worked well when FP16 was used. It was Good because the model was exclusively trained on pedestrian and persons dataset. The path to model xml file is 
-```intel/person-detection-retail-0013/FP16/person-detection-retail-0013.xml```
-
-The second implementation has some issues as the model was trained on a dataset which has diverse classes other than persons exclusively. The bounding box goes on and off in between and whenever it goes on a person is detected. The path to its xml file is:
-
-```ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.xml```
+- The commands I have used to get this model are as follows:
+    ``` cd /opt/intel/openvino/deployment_tools/open_model_zoo/tools/downloader```
+    Then,
+    ```python downloader.py --name human-pose-estimation-0001 -o /home/workspace```
+    
+- This implementation worked well when FP16 was used. It was Good because the model was exclusively trained on pedestrian and persons dataset. The command used to run the final application is as follows:
+``` python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m intel/person-detection-retail-0013/FP16/person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+```
 
 ## Explaining Custom Layers
 
@@ -26,11 +27,14 @@ Some of the potential reasons for handling custom layers are that are not includ
 My method(s) to compare models before and after conversion to Intermediate Representations
 were...
 
-The difference between model accuracy pre- and post-conversion was is very little as the optimizer ensures that there is least reduction in accuracy
+Since models in IR (person-detection-retail-0013) can't be run directly on a PC and their pre-converted forms are unknown, I had run models -2,3 on my PC and compared their performances pre and post conversion.
 
-The size of the model pre- and post-conversion was reduced, as they undergo quantization in the optimizer, the space required is reduced.
+- Accuracy: The accuracy is slghtly reduced after conversion to IR, it can be clearly understood by jitter. The pre-conversion model has less jitter than the post-conversion(IR) model. And sometimes post-conversion doesn't even give bounding box results. Still the performance of the post-converted model is okay as the model optimizer ensures that there is least reduction in accuracy.
 
-The inference time of the model pre- and post-conversion was improved. Pre-conversion model has very high inference time, on my PC which is Intel i3, it took atleasst 10 seconds to process a frame and the video playback is very very slow. After conversion, the inference time is improved.
+
+- Size: The size of the model in terms of the memory it occupies is reduced after converting to IR. The pre-conversion model is heavy in terms of memory occupied. This is the main goal of optimizer to reduce the usage of resources on edge devices.
+
+- Inference Time: Pre-conversion model has very high inference time, on my PC which is Intel i3, it took atleasst 10 seconds to process a frame and the video playback is very very slow. After conversion, the inference time is improved. The goal is to reduce the inference time to make the model run faster on edge devices which is achieved here (post-conversion)
 
 ## Assess Model Use Cases
 
@@ -58,7 +62,47 @@ a successful model.]
 
 In investigating potential people counter models, I tried each of the following three models:
 - Model 1: [Single Shot Multibox Detector on Caltech pedestrian dataset]
-  - (source)[https://github.com/amoussawi/caffe]
+  - [source](https://github.com/amoussawi/caffe)
   - There was a problem with the prototxt file.
   - The issue can be sorted out if the caffe is installed. But since I dont have caffe on my system, I tred installing it on workspace but in vain.
   - So I have shifted to a tensorflow model as stated above.
+  
+- Model 2: [ssd_resnet50_v1_fpn_shared_box_predictor]
+  - [source](http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz)
+  - I have used the following commands:
+      - To download the model:
+      ```wget http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz```
+      - To unzip the downloaded file:
+      ``` tar -xvf ssd_mobilenet_v2_coco_2018_03_29.tar.gz```
+      - Navigate to the directory:
+      ``` cd ssd_mobilenet_v2_coco_2018_03_29```
+      - To convert the model to IR:
+      ```
+      python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config pipeline.config --reverse_input_channels --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json
+      ```
+      - The convetred xml file is in the specified path below:
+      ``` ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.xml ```
+      
+  - This implementation has some issues as the model was trained on a dataset which has diverse classes other than persons exclusively. The bounding box goes on and off in between and whenever it goes on a person is detected. {say, jitter}
+  - I have tried to fix the problem with skipping some frames in between but it doesn't seem like the optimal implementation. So, I have decided no to go with this.
+
+- Model 3: [ssd_resnet50_v1_fpn_shared_box_predictor]
+  - [source](http://download.tensorflow.org/models/object_detection/ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03.tar.gz)
+  - I have used the following commands:
+      - To download the model:
+      ```wget http://download.tensorflow.org/models/object_detection/ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03.tar.gz```
+      - To unzip the downloaded file:
+      ``` tar -xvf ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03.tar.gz```
+      - Navigate to the directory:
+      ``` cd ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/```
+      - To convert the model to IR:
+      ```
+      python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config pipeline.config --reverse_input_channels --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json
+      ```
+      - The convetred xml file is in the specified path below:
+      ```ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/frozen_inference_graph.xml ```
+      
+  - The problem with this model is jitter (same as with the model-2) and this is somewhat heavy model (in layers and parameters) as compared to previous ones :) 
+
+
+  
